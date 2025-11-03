@@ -7,25 +7,23 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# GitHub Pages + 评论所需权限
 permissions:
   contents: read
   pages: write
   id-token: write
   pull-requests: write
 
-# 避免并发部署互相覆盖（按 PR 或分支做隔离）
 concurrency:
   group: pages-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # 正式部署：仅在 push 到 master 时触发
   deploy:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
+      # 生产部署没有 preview_url，因此直接用 page_url
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - name: Checkout
@@ -53,15 +51,16 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
-        # 正式部署无需 preview: true
+        with:
+          enablement: true
 
-  # 预览部署：仅在 PR 事件触发
   preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      # 预览环境：优先使用 preview_url，兜底 page_url
+      url: ${{ steps.deploy.outputs.preview_url != '' && steps.deploy.outputs.preview_url || steps.deploy.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,6 +89,7 @@ jobs:
         uses: actions/deploy-pages@v4
         with:
           preview: true
+          enablement: true
 
       - name: Comment preview URL on PR
         if: always()
@@ -98,6 +98,6 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             ✅ 预览已部署：
-            ${{ steps.deploy.outputs.page_url }}
+            ${{ steps.deploy.outputs.preview_url != '' && steps.deploy.outputs.preview_url || steps.deploy.outputs.page_url }}
 
-            如果你更新了 PR（push 了新的 commit），此链接会随最新构建自动刷新。
+            如果你更新了 PR（push 新提交），此链接会随最新构建自动刷新。
