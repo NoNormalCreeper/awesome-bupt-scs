@@ -1,15 +1,103 @@
 name: ci
+
 on:
   push:
     branches:
       - master
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# GitHub Pages + 评论所需权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  pull-requests: write
+
+# 避免并发部署互相覆盖（按 PR 或分支做隔离）
+concurrency:
+  group: pages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # 正式部署：仅在 push 到 master 时触发
   deploy:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.x
-      - run: pip install mkdocs-material
-      - run: mkdocs gh-deploy --force
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install mkdocs-material
+
+      - name: Build site
+        run: mkdocs build --strict
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+        # 正式部署无需 preview: true
+
+  # 预览部署：仅在 PR 事件触发
+  preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install mkdocs-material
+
+      - name: Build site
+        run: mkdocs build --strict
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy preview to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+        with:
+          preview: true
+
+      - name: Comment preview URL on PR
+        if: always()
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ✅ 预览已部署：
+            ${{ steps.deploy.outputs.page_url }}
+
+            如果你更新了 PR（push 了新的 commit），此链接会随最新构建自动刷新。
